@@ -1,0 +1,31 @@
+#!/bin/sh
+
+
+# all in one place frontend for 
+# musicplayer through hist-reader
+
+if [ "$1" = "add" ]
+then
+    query="SELECT title, url FROM moz_places WHERE url LIKE '%music.youtube%'"
+    url=$(hist-reader -q "$query" | rofi -dmenu -i | awk 'BEGIN { FS = "\" " }; {print $2}' | sed -e 's/^"//' -e 's/"$//')
+    musicplayer -s "add ${url}"
+elif [ "$1" = "next" ] 
+then
+    musicplayer -s "next"
+elif [ "$1" = "radio" ]
+then
+    query="SELECT title, last_visit_date FROM moz_places WHERE url LIKE '%music.youtube%'"
+    date=$(hist-reader -q "$query" | rofi -dmenu -i | awk 'BEGIN { FS = "\" " }; {print $2}' | sed -e 's/^"//' -e 's/"$//')
+    query2="SELECT title, url FROM moz_places WHERE url LIKE '%music.youtube%' AND last_visit_date > ${date} ORDER BY last_visit_date ASC LIMIT 50"
+    radio=$(hist-reader -q "$query2" | awk 'BEGIN { FS = "\" " }; {print $2}' | sed -e 's/^"//' -e 's/"$//')
+
+    echo $radio
+    for url in $radio
+    do
+        musicplayer -s "add ${url}" # does this work? well it adds something to the Q..
+        sleep 1
+    done
+elif [ "$1" = "clear" ]
+then 
+    musicplayer -s "clear"
+fi

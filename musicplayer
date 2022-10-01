@@ -1,0 +1,123 @@
+#!/bin/perl
+
+use strict;
+use warnings;
+
+use feature qw(say);
+use Switch;
+
+use Fcntl;
+use FileHandle;
+use Getopt::Long;
+use Forks::Queue;
+
+my $track_q;
+
+my $pipe_path = "/tmp/musicplayer";
+my $q_file = "/home/charli/.cache/music.queue";
+my $signal = '';
+my $help;
+my $start;
+
+GetOptions (
+    "signal|s=s" => \$signal,
+    "help|h"     => \$help,
+    "start|e"    => \$start
+);
+
+# start player
+if ($start) { 
+    main(); 
+} elsif ($help) { 
+    say "help :3";
+    die;
+} elsif ($signal) {
+    sender($signal);
+    die;
+} else {
+    die "baka";
+}
+    
+
+# routine of player
+sub main 
+{
+    $track_q = Forks::Queue->new(impl  => 'File', file  => $q_file, persist => 1,
+                                 style => 'lifo', limit => -1);
+
+    if (!defined(my $pid = fork())) {
+        die "fork failed :(";
+    } elsif ($pid == 0) {
+        while () { runner(); }
+    } else {
+
+        unless (-p $pipe_path) {
+            unlink $pipe_path;
+            require POSIX;
+            POSIX::mkfifo($pipe_path, 0700) || die "mkfifo fail";
+        }
+
+
+        while () {
+            my @sig = listener();
+            switch($sig[0]) {
+                case "kill" { 
+                    kill 15, $pid;
+                    die;
+                }
+                case "next" {
+                    kill 2, $pid;
+                }
+                case "clear" {
+                    $track_q->clear;
+                }
+                case "add" {
+                    $track_q->put($sig[1]);
+                }
+            }
+        }
+    }
+}
+
+sub runner
+{
+    $SIG{INT} = 'IGNORE';
+
+    while () {
+        my $link = $track_q->get;
+
+        if (!defined(my $pid = fork())) {
+            die "fork failed :(";
+        } elsif ($pid == 0) {
+            if (exec("mpv", $link, "--no-video") < 0) { ## exec
+                warn "youtube-dl fail"; 
+            }
+        } else {
+            $SIG{TERM} = sub { kill 15, $pid; die; };
+            $SIG{INT}  = sub { kill 15, $pid; };
+            waitpid $pid, 0;
+            $SIG{INT} = 'IGNORE'; # this isnt super thread safe, but do i care?
+        }
+    }
+}
+
+sub listener
+{
+    open(FIFO, "+<", $pipe_path) || die "cant open pipe :(";
+    my $message = <FIFO>;
+    chomp $message;
+
+    return(split(' ', $message, 2));
+}
+
+sub sender
+{
+    my $message = join " ", @_;
+    open(FIFO, ">", $pipe_path) || die "cant open pipe :(";
+    FIFO->autoflush(1);
+    print FIFO $message, "\n";
+    close FIFO;
+}
+
+
+
